@@ -1,0 +1,10 @@
+streamlit
+pandas
+plotly
+yfinance
+fredapi
+requests
+python-dotenv
+feedparser
+scipy
+google-generativeai
