@@ -410,3 +410,319 @@ def scan_potential_alphas(existing_tickers):
         print(f"Error scanning alphas: {e}")
         
     return pd.DataFrame(candidates)
+
+# --- NET WORTH PORTFOLIO FETCHERS ---
+
+import base64
+
+def get_trading212_portfolio(api_key, api_secret=None):
+    """
+    Fetches the portfolio from Trading 212 API using Basic Auth base64 encoding.
+    """
+    if not api_key:
+        return {"total_equity": 0, "cash": 0, "positions": []}
+        
+    # As per Trading 212 Docs, auth is Basic <base64(key:secret)>
+    # If no secret provided, we'll try the old direct bearer just in case, but assume basic auth.
+    if api_secret:
+        cred_str = f"{api_key}:{api_secret}"
+        encoded_cred = base64.b64encode(cred_str.encode('utf-8')).decode('utf-8')
+        auth_header = f"Basic {encoded_cred}"
+    else:
+        auth_header = api_key # Fallback if user only provided one string in legacy format
+    
+    headers = {
+        "Authorization": auth_header,
+        "Content-Type": "application/json"
+    }
+    result = {"total_equity_usd": 0, "total_equity_eur": 0, "cash_usd": 0, "cash_eur": 0, "positions": []}
+    
+    # Let's try LIVE first, then DEMO if 401/404
+    base_urls = ["https://live.trading212.com", "https://demo.trading212.com"]
+    success = False
+    
+    # Pre-fetch EUR/USD strictly to convert total account values (assuming account is in EUR)
+    eur_usd_rate = 1.08 # Safe fallback
+    try:
+        eur_usd_data = yf.download("EURUSD=X", period="1d", progress=False)
+        eur_usd_rate = float(eur_usd_data['Close'].iloc[-1])
+    except Exception as e:
+        print(f"EUR/USD Fetch Error: {e}")
+        
+    for base in base_urls:
+        try:
+            # Cash/Equity endpoint
+            cash_url = f"{base}/api/v0/equity/account/cash"
+            cash_resp = requests.get(cash_url, headers=headers, timeout=10)
+            
+            if cash_resp.status_code == 200:
+                success = True
+                data = cash_resp.json()
+                # Assuming T212 totals are in EUR based on account.
+                result["total_equity_eur"] = data.get("total", 0)
+                result["total_equity_usd"] = data.get("total", 0) * eur_usd_rate
+                result["cash_eur"] = data.get("free", 0)
+                result["cash_usd"] = data.get("free", 0) * eur_usd_rate
+                
+                # If cash successful, do Positions endpoint on same base URL
+                pos_url = f"{base}/api/v0/equity/portfolio"
+                pos_resp = requests.get(pos_url, headers=headers, timeout=10)
+                if pos_resp.status_code == 200:
+                    for p in pos_resp.json():
+                        qty = p.get("quantity", 0)
+                        price = p.get("currentPrice", 0)
+                        
+                        raw_ticker = p.get("ticker", "")
+                        clean_ticker = raw_ticker.split("_")[0] if raw_ticker else ""
+                        
+                        # Fix common SPAC legacy tickers in T212 portfolio
+                        if clean_ticker == "DMYI": clean_ticker = "IONQ"
+                        if clean_ticker == "RTP": clean_ticker = "JOBY"
+                        
+                        result["positions"].append({
+                            "ticker": clean_ticker,
+                            "value_usd": qty * price, # US stocks return currentPrice in USD
+                            "value_eur": (qty * price) / eur_usd_rate if eur_usd_rate else qty * price,
+                            "profit_eur": p.get("ppl", 0), # ppl is returned in account currency (EUR)
+                            "profit_usd": p.get("ppl", 0) * eur_usd_rate
+                        })
+                else:
+                    st.sidebar.error(f"T212 Port Error {pos_resp.status_code} ({base}): {pos_resp.text}")
+                
+                break # Stop trying URLs if one succeeded
+            else:
+                 # It failed, we'll loop to the next Dem/Live environment
+                 pass
+                 
+        except Exception as e:
+            st.sidebar.error(f"T212 Exception: {e}")
+            break
+            
+    if not success and cash_resp:
+         # If all failed, show the last error
+         st.sidebar.error(f"T212 Cash Error failed on all endpoints. Last error {cash_resp.status_code}: {cash_resp.text}")
+         
+    return result
+
+def get_crypto_balances(_secrets):
+    """
+    Fetches Crypto balances dynamically using public RPCs/Explorers.
+    """
+    result = {
+        "liquid": [],
+        "staked": [],
+        "total_liquid_usd": 0.0,
+        "total_staked_usd": 0.0,
+        "total_liquid_eur": 0.0,
+        "total_staked_eur": 0.0
+    }
+    
+    eur_usd_rate = 1.08 # Safe fallback
+    try:
+        eur_usd_data = yf.download("EURUSD=X", period="1d", progress=False)
+        eur_usd_rate = float(eur_usd_data['Close'].iloc[-1])
+    except: pass
+    
+    # Configure robust session for public APIs like Solana that frequently timeout
+    from requests.adapters import HTTPAdapter
+    from requests.packages.urllib3.util.retry import Retry
+    
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[ 500, 502, 503, 504 ])
+    session.mount('https://', HTTPAdapter(max_retries=retries))
+    
+    # 1. Prices (using yfinance as fallback for USD value)
+    prices = {}
+    try:
+        tickers = ["ETH-USD", "SOL-USD", "LINK-USD", "TAO22974-USD", "ONDO-USD", "XRP-USD"]
+        df = yf.download(tickers, period="1d", progress=False)
+        
+        # Helper to safely extract scalar prices from yfinance df
+        def get_price(tik):
+            try:
+                col = df['Close'][tik]
+                return float(col.iloc[-1])
+            except:
+                return 0.0
+                
+        prices['ETH'] = get_price("ETH-USD")
+        prices['SOL'] = get_price("SOL-USD")
+        prices['LINK'] = get_price("LINK-USD")
+        prices['TAO'] = get_price("TAO22974-USD")
+        prices['ONDO'] = get_price("ONDO-USD")
+        prices['XRP'] = get_price("XRP-USD")
+    except Exception as e:
+        print(f"Crypto price fetch error: {e}")
+
+    def add_balance(category, asset, balance):
+        if balance > 0:
+            val_usd = balance * prices.get(asset, 0)
+            val_eur = val_usd / eur_usd_rate
+            
+            result[category].append({
+                "asset": asset,
+                "balance": balance,
+                "value_usd": val_usd,
+                "value_eur": val_eur
+            })
+            if category == "liquid":
+                result["total_liquid_usd"] += val_usd
+                result["total_liquid_eur"] += val_eur
+            else:
+                result["total_staked_usd"] += val_usd
+                result["total_staked_eur"] += val_eur
+
+    # --- ETHEREUM (Liquid) ---
+    eth_addr = _secrets.get("LEDGER_ETH_ADDRESS", "")
+    if eth_addr:
+        try:
+            url = f"https://api.ethplorer.io/getAddressInfo/{eth_addr}?apiKey=freekey"
+            res = requests.get(url, timeout=10).json()
+            if "ETH" in res:
+                add_balance("liquid", "ETH", res["ETH"].get("balance", 0))
+            if "tokens" in res:
+                for t in res["tokens"]:
+                    sym = t.get("tokenInfo", {}).get("symbol", "").upper()
+                    if sym in ["LINK", "ONDO", "TAO"]: # TAO might be wTAO
+                        decimals = int(t.get("tokenInfo", {}).get("decimals", 18))
+                        bal = int(t.get("balance", 0)) / (10**decimals)
+                        add_balance("liquid", sym, bal)
+        except Exception as e:
+            print(f"Ethplorer error: {e}")
+
+    # --- SOLANA (Liquid + Staked) ---
+    sol_addr = _secrets.get("LEDGER_SOL_ADDRESS", "")
+    if sol_addr:
+        try:
+            # 1. Native SOL (Liquid)
+            payload = {"jsonrpc":"2.0", "id":1, "method":"getBalance", "params":[sol_addr]}
+            res = session.post("https://api.mainnet-beta.solana.com", json=payload, timeout=10).json()
+            lamports = res.get("result", {}).get("value", 0)
+            if lamports:
+                add_balance("liquid", "SOL", lamports / 1e9)
+                
+            # 2. SPL Tokens (Staked SOL / mSOL)
+            # Marinade staked SOL token mint: mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqkVmF8n
+            token_payload = {
+                "jsonrpc": "2.0", "id": 1,
+                "method": "getTokenAccountsByOwner",
+                "params": [
+                    sol_addr,
+                    {"mint": "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqkVmF8n"},
+                    {"encoding": "jsonParsed"}
+                ]
+            }
+            tok_res_raw = session.post("https://api.mainnet-beta.solana.com", json=token_payload, timeout=10)
+            if tok_res_raw.status_code == 200:
+                tok_res = tok_res_raw.json()
+                accounts = tok_res.get("result", {}).get("value", [])
+                
+                for acc in accounts:
+                    info = acc.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
+                    # Marinade Staked SOL matches the filtered request
+                    amount_str = info.get("tokenAmount", {}).get("uiAmountString", "0")
+                    add_balance("staked", "SOL", float(amount_str))
+            else:
+                st.sidebar.error(f"Solana Token Error: {tok_res_raw.text}")
+                    
+        except Exception as e:
+            st.sidebar.error(f"Solana Exception: {e}")
+
+    # --- XRP (Liquid) ---
+    xrp_addr = _secrets.get("LEDGER_XRP_ADDRESS", "")
+    if xrp_addr:
+        try:
+            payload = {"method": "account_info", "params": [{"account": xrp_addr, "strict": True}]}
+            res = session.post("https://s1.ripple.com:51234/", json=payload, timeout=10).json()
+            drops = res.get("result", {}).get("account_data", {}).get("Balance", "0")
+            if drops:
+                add_balance("liquid", "XRP", int(drops) / 1e6)
+        except Exception as e:
+            print(f"XRP error: {e}")
+            
+    # --- STAKED ---
+    # For Staked ETH, typically held as stETH or in a smart contract. 
+    # Best effort via ethplorer (checking if the user provided the stETH contract as their staked address)
+    stk_eth = _secrets.get("STAKED_ETH_ADDRESS", "")
+    if stk_eth:
+         try:
+            res = requests.get(f"https://api.ethplorer.io/getAddressInfo/{stk_eth}?apiKey=freekey", timeout=10).json()
+            for t in res.get("tokens", []):
+                sym = t.get("tokenInfo", {}).get("symbol", "").upper()
+                if "ETH" in sym or "STETH" in sym:
+                    decimals = int(t.get("tokenInfo", {}).get("decimals", 18))
+                    bal = int(t.get("balance", 0)) / (10**decimals)
+                    add_balance("staked", "ETH", bal)
+         except: pass
+         
+    # For Native Staked SOL (e.g. Marinade Native Stake accounts or Stake Authority PDA)
+    stk_sol = _secrets.get("STAKED_SOL_ADDRESS", "")
+    if stk_sol:
+        try:
+            # Check if it's an Authority Address with multiple Stake Accounts
+            STAKE_PROGRAM_ID = 'Stake11111111111111111111111111111111111111'
+            payload = {
+                'jsonrpc': '2.0',
+                'id': 1,
+                'method': 'getProgramAccounts',
+                'params': [
+                    STAKE_PROGRAM_ID,
+                    {
+                        'encoding': 'jsonParsed',
+                        'filters': [{'memcmp': {'offset': 44, 'bytes': stk_sol}}]
+                    }
+                ]
+            }
+            res = session.post("https://api.mainnet-beta.solana.com", json=payload, timeout=15).json()
+            accounts = res.get("result", [])
+            total_lamports = 0
+            for acc in accounts:
+                total_lamports += acc.get("account", {}).get("lamports", 0)
+                
+            if total_lamports > 0:
+                add_balance("staked", "SOL", total_lamports / 1e9)
+            else:
+                # Fallback to check if the address itself is a single native stake account (direct balance)
+                payload_bal = {"jsonrpc":"2.0", "id":2, "method":"getBalance", "params":[stk_sol]}
+                res_bal = session.post("https://api.mainnet-beta.solana.com", json=payload_bal, timeout=10).json()
+                lamports_bal = res_bal.get("result", {}).get("value", 0)
+                if lamports_bal > 0:
+                     add_balance("staked", "SOL", lamports_bal / 1e9)
+                     
+        except Exception as e:
+            # Suppress noisy timeouts as it's common for public solana RPCs if partial balance loaded
+            if "Max retries exceeded" not in str(e) and "timeout" not in str(e).lower():
+                st.sidebar.error(f"Solana Staked Exception: {e}")
+
+    # --- BITTENSOR (TAO) Liquid & Staked ---
+    tao_addr = _secrets.get("LEDGER_TAO_ADDRESS", "")
+    tao_api_key = _secrets.get("TAOSTATS_API_KEY", "")
+    if tao_addr:
+        if not tao_api_key:
+            st.sidebar.warning("Native TAO tracking requires a Taostats API Key. Check setup instructions.")
+        else:
+            try:
+                # Based on Taostats API docs for Account bounds
+                tao_headers = {"Authorization": tao_api_key}
+                
+                # We will fetch Get Account latest data from Taostats 
+                tao_res = session.get(f"https://api.taostats.io/api/account/latest/v1?address={tao_addr}", headers=tao_headers, timeout=10)
+                if tao_res.status_code == 200:
+                    data = tao_res.json()
+                    if "data" in data and len(data["data"]) > 0:
+                        account_info = data["data"][0]
+                        # Balances from Taostats are returned in RAO (1e-9 TAO)
+                        l_bal = float(account_info.get("balance_free", 0)) / 1e9
+                        s_bal = float(account_info.get("balance_staked", 0)) / 1e9
+                        
+                        if l_bal > 0: add_balance("liquid", "TAO", l_bal)
+                        if s_bal > 0: add_balance("staked", "TAO", s_bal)
+                elif tao_res.status_code == 404:
+                     # Account might be new or unindexed
+                     pass
+                else:
+                    st.sidebar.error(f"Taostats API Error: {tao_res.status_code} - {tao_res.text}")
+            except Exception as e:
+                 print(f"TAO fetch exception: {e}")
+
+    return result

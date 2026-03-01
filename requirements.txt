@@ -7,4 +7,3 @@ requests
 python-dotenv
 feedparser
 scipy
-google-generativeai

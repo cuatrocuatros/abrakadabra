@@ -42,33 +42,18 @@ try:
 except:
     GOOGLE_API_KEY = None
 
-import utils.intelligence as intel_utils
 import utils.yf_fundamentals as yf_utils
 
 # Strict Portfolio Tickers (No "Discovery" assets here, they belong in the Scanner)
 tickers = [
-    # Mineras
-    "IREN", "CLSK", "CIFR", "CORZ",
-    # eVTOL
-    "JOBY", "ACHR", "EVEX", "EVTL",
-    # Quantum
-    "IONQ", "QBTS",
-    # Biotech (IA Bio)
-    "RXRX", "SDGR",
-    # IA & Big Tech
-    "TSLA", "GOOG",
-    # Cybersecurity / Identity
-    "YOU",
-    # IA Crypto
-    "TAO", "RENDER", "FET",
-    # Crypto & DeFi
-    "ONDO", "LINK", "SOL", "ETH", "XRP"
+    "GOOG", "TSLA", "YOU", "IONQ", "JOBY", "CLSK", "SDGR",
+    "ETH", "SOL", "LINK", "TAO", "ONDO", "XRP"
 ]
 
 # --- SIDEBAR NAVIGATION ---
 with st.sidebar:
     st.header("Navegación")
-    page = st.radio("Ir a:", ["Market Control", "Intelligence Hub", "Company Deep-Dive", "Portfolio 2036"], index=0)
+    page = st.radio("Ir a:", ["Net Worth & Portfolio", "Market Control", "Company Deep-Dive"], index=0)
     st.divider()
     st.header("Settings")
     st.info("Auto-refresh enabled via Browser (F5)")
@@ -372,59 +357,6 @@ if page == "Market Control":
         st.info("El Radar no ha detectado Reversiones hoy.")
 
 # ==========================================
-# PAGE 2: INTELLIGENCE HUB (New)
-# ==========================================
-elif page == "Intelligence Hub":
-    st.header("🧠 Intelligence Hub (Alpha)")
-    st.caption("Feed en Español: Noticias, Sentimiento de Cartera y Macro-Datos.")
-    
-    # 1. Macro Panorama AI
-    st.subheader("🦅 Macro Panorama (Gemini 2.5 Flash)")
-    with st.spinner("Analizando evolución histórica de TGA, RRP, DXY y Yields..."):
-        tga_df = df_utils.get_tga(FRED_API_KEY) if FRED_API_KEY else None
-        rrp_df = df_utils.get_reverse_repo(FRED_API_KEY) if FRED_API_KEY else None
-        dxy_df = df_utils.get_dxy(FRED_API_KEY) if FRED_API_KEY else None
-        yc_df = df_utils.get_yield_curve(FRED_API_KEY) if FRED_API_KEY else None
-        
-        panorama_text = intel_utils.get_ai_macro_panorama(tga_df, rrp_df, dxy_df, yc_df)
-        st.info(panorama_text)
-    
-    st.divider()
-    
-    # 2. Main Content Grid
-    col_sentiment, col_news = st.columns([1, 2])
-    
-    with col_sentiment:
-        st.subheader("🤖 Sentimiento Carta")
-        st.caption("Sentimiento IA (Simulado) sobre TU Portfolio.")
-        
-        # Use simple names for sentiment display
-        clean_portfolio = sorted(list(set([t.replace("22974", "").replace("1", "") for t in tickers])))
-        
-        for asset in clean_portfolio:
-            label, color = intel_utils.analyze_sentiment(asset)
-            st.markdown(f"**{asset}**: <span style='{color}'>{label}</span>", unsafe_allow_html=True)
-            
-        st.divider()
-        st.subheader("🐦 Twitter Flow")
-        st.components.v1.html(
-            """
-            <a class="twitter-timeline" data-height="600" data-theme="dark" href="https://twitter.com/WuBlockchain?ref_src=twsrc%5Etfw">Tweets by WuBlockchain</a> <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
-            """, 
-            height=600, scrolling=True
-        )
-
-    with col_news:
-        st.subheader("📰 Noticias Curadas (ES)")
-        with st.spinner("Buscando noticias en español (Crypto & Macro)..."):
-            headlines = intel_utils.get_curated_headlines()
-            
-            for item in headlines:
-                with st.expander(f"{item['Source']}: {item['Title']}"):
-                    st.write(f"**Publicado:** {item['Published']}")
-                    st.markdown(f"[Leer noticia completa]({item['Link']})")
-
-# ==========================================
 # PAGE 3: COMPANY DEEP-DIVE (Fundamental)
 # ==========================================
 elif page == "Company Deep-Dive":
@@ -435,7 +367,7 @@ elif page == "Company Deep-Dive":
     with col1:
         st.write("### Quick Access (Bookmarks)")
         # Dynamically generate buttons from requested unified portfolio equities
-        equities = ['IREN', 'CLSK', 'CIFR', 'CORZ', 'JOBY', 'ACHR', 'EVEX', 'EVTL', 'IONQ', 'QBTS', 'RXRX', 'SDGR', 'TSLA', 'GOOG', 'YOU']
+        equities = ['GOOG', 'TSLA', 'YOU', 'IONQ', 'JOBY', 'CLSK', 'SDGR']
         
         # Display up to 15 equities in a 5-column layout
         display_equities = equities[:15]
@@ -564,24 +496,6 @@ elif page == "Company Deep-Dive":
                     st.caption(f"{prev_label}: {format_currency(prev_ni_val)}")
                     st.caption("Es lo que queda de las ventas tras pagar todos los gastos. Es el beneficio puro.")
 
-                # AI Summary
-                st.markdown("### 🤖 Sintesis AI (Gemini 2.5 Flash)")
-                
-                # Setup metrics dictionary for LLM
-                metrics_dict = {
-                    "Ticker": ticker_input,
-                    "Period_Mode": period_mode,
-                    "Trend_Check_Op_Leverage": ol_val,
-                    "Survival_Check_Liquidity": lr_val,
-                    "Reality_Check_Earnings_Quality": eq_val,
-                    "Revenue_Growth": rev_chg,
-                    "Net_Income_Growth": ni_chg
-                }
-                
-                with st.spinner("Generando síntesis con Gemini 2.5 Flash..."):
-                    ai_text = intel_utils.get_llm_analysis(metrics_dict)
-                st.info(ai_text)
-                
                 # Charts
                 st.markdown("### 📊 Evolución Histórica")
                 
@@ -606,27 +520,156 @@ elif page == "Company Deep-Dive":
                          fig_eq.update_layout(template="plotly_dark", height=400)
                          st.plotly_chart(fig_eq, use_container_width=True)
 
-                st.divider()
-                
-                # --- Vision 2036 Module ---
-                st.markdown("### 👁️‍🗨️ Vision 2036: Tesis de Inversión a Largo Plazo")
-                with st.expander("🚀 Análisis Estratégico 2036", expanded=True):
-                    with st.spinner("Generando reporte de Wall Street (Histórico + Narrativa)..."):
-                        thesis_text = intel_utils.get_vision_2036_thesis(df_filtered, ticker_input, period_mode)
-                        st.markdown(thesis_text)
+# ==========================================
+# PAGE 4: NET WORTH & PORTFOLIO (New)
+# ==========================================
+elif page == "Net Worth & Portfolio":
+    st.header("💎 Net Worth & Portfolio")
+    st.caption("Visual command center for Stocks & Crypto. (Live)")
 
-# ==========================================
-# PAGE 4: PORTFOLIO 2036 (The Long-Term Multiplier)
-# ==========================================
-elif page == "Portfolio 2036":
-    st.header("🏆 Portfolio Analysis (The 2036 Multiplier)")
-    st.caption("AI cross-comparison of all bookmarks for the ultimate DCA winner.")
+    try:
+        TRADING212_KEY = st.secrets.get("TRADING212_API_KEY", "")
+        TRADING212_SECRET = st.secrets.get("TRADING212_API_SECRET", "")
+    except:
+        TRADING212_KEY = ""
+        TRADING212_SECRET = ""
+        
+    with st.spinner("Fetching Portfolio Data..."):
+        # Fetch Data
+        t212_data = df_utils.get_trading212_portfolio(TRADING212_KEY, TRADING212_SECRET)
+        crypto_data = df_utils.get_crypto_balances(st.secrets if hasattr(st, 'secrets') else {})
+        
+        # Calculate Totals
+        stocks_total_eur = t212_data.get("total_equity_eur", 0)
+        stocks_total_usd = t212_data.get("total_equity_usd", 0)
+        
+        liquid_crypto_eur = crypto_data.get("total_liquid_eur", 0)
+        staked_crypto_eur = crypto_data.get("total_staked_eur", 0)
+        crypto_total_eur = liquid_crypto_eur + staked_crypto_eur
+        
+        liquid_crypto_usd = crypto_data.get("total_liquid_usd", 0)
+        staked_crypto_usd = crypto_data.get("total_staked_usd", 0)
+        crypto_total_usd = liquid_crypto_usd + staked_crypto_usd
+        
+        net_worth_eur = stocks_total_eur + crypto_total_eur
+        net_worth_usd = stocks_total_usd + crypto_total_usd
+        
+    # --- HERO SECTION ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    hero_col1, hero_col2, hero_col3 = st.columns([1,1,1])
     
-    with st.container(border=True):
-        # We pass the full equities list previously defined as a tuple to ensure cache hits
-        equities_list = ('IREN', 'CLSK', 'CIFR', 'CORZ', 'JOBY', 'ACHR', 'EVEX', 'EVTL', 'IONQ', 'QBTS', 'RXRX', 'SDGR', 'TSLA', 'GOOG', 'YOU')
-        with st.spinner("Analyzing all 15 bookmarks simultaneously to determine the Top Pick..."):
-            multiplier_text = intel_utils.get_portfolio_2036_multiplier(equities_list)
-            st.markdown(multiplier_text)
+    def metric_card(title, eur_val, usd_val):
+        return f'''
+        <div style="background-color: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; border-left: 4px solid #00F0FF;">
+            <p style="color: #A0A0A0; font-size: 14px; margin-bottom: 5px; font-weight: bold;">{title}</p>
+            <h2 style="margin: 0; color: #FFFFFF; font-size: 28px;">€{eur_val:,.2f} <sup style="color: #AAAAAA; font-size: 0.5em; font-weight: normal;">${usd_val:,.2f}</sup></h2>
+        </div>
+        '''
+    
+    with hero_col1:
+        st.markdown(metric_card("Total Net Worth", net_worth_eur, net_worth_usd), unsafe_allow_html=True)
+    with hero_col2:
+        st.markdown(metric_card("Stocks (Trading 212)", stocks_total_eur, stocks_total_usd), unsafe_allow_html=True)
+    with hero_col3:
+        st.markdown(metric_card("Crypto (Liquid + Staked)", crypto_total_eur, crypto_total_usd), unsafe_allow_html=True)
+        
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.divider()
+    
+    # --- CHARTS SECTION ---
+    st.subheader("📊 Portfolio Overview")
+    
+    chart_col1, chart_col2 = st.columns([1, 2])
+    
+    with chart_col1:
+        # Donut Chart
+        labels = ['Stocks', 'Liquid Crypto', 'Staked Crypto']
+        values = [stocks_total_eur, liquid_crypto_eur, staked_crypto_eur]
+        
+        fig_donut = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.6, marker_colors=['#00F0FF', '#FF00FF', '#00FF00'])])
+        fig_donut.update_layout(
+            title_text="Asset Allocation",
+            template="plotly_dark",
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+            margin=dict(t=50, b=0, l=0, r=0)
+        )
+        st.plotly_chart(fig_donut, use_container_width=True)
+        
+    with chart_col2:
+        # Line Chart for Historical Growth
+        # Generate mock data for history based on today
+        import numpy as np
+        dates = pd.date_range(end=datetime.datetime.today(), periods=365)
+        np.random.seed(42)
+        random_walk = np.random.normal(loc=0.0005, scale=0.01, size=365)
+        cumulative_returns = np.cumprod(1 + random_walk)
+        mock_historical = cumulative_returns * (net_worth_eur / cumulative_returns[-1]) # Scale to end at current NW
+        
+        hist_df = pd.DataFrame({'Date': dates, 'Net Worth': mock_historical})
+        
+        time_filter = st.radio("Timeframe:", ["1W", "1M", "YTD", "1Y"], horizontal=True, index=3)
+        
+        if time_filter == "1W": hist_df_filtered = hist_df.tail(7)
+        elif time_filter == "1M": hist_df_filtered = hist_df.tail(30)
+        elif time_filter == "YTD": 
+             start_of_year = datetime.datetime(datetime.datetime.today().year, 1, 1)
+             hist_df_filtered = hist_df[hist_df['Date'] >= start_of_year]
+        else: hist_df_filtered = hist_df
+        
+        fig_line = px.line(hist_df_filtered, x='Date', y='Net Worth')
+        fig_line.update_traces(line_color='#00F0FF', fill='tozeroy', fillcolor='rgba(0, 240, 255, 0.1)')
+        fig_line.update_layout(
+            title="Crecimiento Simulable (Último Año)",
+            template="plotly_dark",
+            margin=dict(t=50, b=0, l=0, r=0),
+            yaxis_title=None,
+            xaxis_title=None
+        )
+        st.plotly_chart(fig_line, use_container_width=True)
+        
+    st.divider()
+    
+    # --- BREAKDOWN SECTION ---
+    st.subheader("🔐 Crypto Breakdown (Liquid vs Staked)")
+    
+    col_liquid, col_staked = st.columns(2)
+    
+    with col_liquid:
+        st.markdown(f"#### 💧 Liquid / Cold Wallet (€{liquid_crypto_eur:,.2f})")
+        liquid_df = pd.DataFrame(crypto_data.get("liquid", []))
+        if not liquid_df.empty:
+            # Reorder explicitly for aesthetics
+            liquid_df = liquid_df[["asset", "balance", "value_eur", "value_usd"]]
+            styled_liq = liquid_df.style.format({"balance": "{:,.4f}", "value_eur": "€{:,.2f}", "value_usd": "${:,.2f}"})
+            st.dataframe(styled_liq, hide_index=True, use_container_width=True)
+            
+    with col_staked:
+        st.markdown(f"#### 🥩 Staked (€{staked_crypto_eur:,.2f})")
+        staked_df = pd.DataFrame(crypto_data.get("staked", []))
+        if not staked_df.empty:
+            staked_df = staked_df[["asset", "balance", "value_eur", "value_usd"]]
+            styled_stk = staked_df.style.format({"balance": "{:,.4f}", "value_eur": "€{:,.2f}", "value_usd": "${:,.2f}"})
+            st.dataframe(styled_stk, hide_index=True, use_container_width=True)
+            
+    st.divider()
+    st.subheader("📈 Stocks Breakdown (Trading 212)")
+    stocks_df = pd.DataFrame(t212_data.get("positions", []))
+    if not stocks_df.empty:
+         def highlight_profit(val):
+             if pd.isna(val): return ''
+             try:
+                 val_float = float(val)
+                 color = '#00FF00' if val_float > 0 else '#FF0000'
+                 return f'color: {color}; font-weight: bold;'
+             except:
+                 return ''
+             
+         stocks_df = stocks_df[["ticker", "value_eur", "value_usd", "profit_eur", "profit_usd"]]
+         styled_stk212 = stocks_df.style.format({
+             "value_eur": "€{:,.2f}", "value_usd": "${:,.2f}",
+             "profit_eur": "€{:,.2f}", "profit_usd": "${:,.2f}"
+         }).applymap(highlight_profit, subset=["profit_eur", "profit_usd"])
+         st.dataframe(styled_stk212, hide_index=True, use_container_width=True)
 
 
