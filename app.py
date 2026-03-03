@@ -598,18 +598,20 @@ elif page == "Net Worth & Portfolio":
                     "dca_tokens": dca_bal,
                     "current_tokens": current_bal,
                     "reward_tokens": reward_tokens if reward_tokens > 0 else 0,
-                    "reward_eur": reward_eur if reward_eur > 0 else 0
+                    "reward_eur": reward_eur if reward_eur > 0 else 0,
+                    "roi_pct": (reward_tokens / dca_bal * 100) if (dca_bal > 0 and reward_tokens > 0) else 0
                 })
         
         # --- HERO SECTION ---
     st.markdown("<br>", unsafe_allow_html=True)
     hero_col1, hero_col2, hero_col3, hero_col4 = st.columns(4)
     
-    def metric_card(title, eur_val, usd_val):
+    def metric_card(title, eur_val, usd_val, pct=None):
+        pct_html = f'<span style="color: #00FF00; font-size: 14px; margin-left: 10px;">↑{pct:,.2f}%</span>' if pct is not None else ""
         return f'''
         <div style="background-color: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; border-left: 4px solid #00F0FF; height: 100%;">
             <p style="color: #A0A0A0; font-size: 13px; margin-bottom: 5px; font-weight: bold;">{title}</p>
-            <h3 style="margin: 0; color: #FFFFFF; font-size: 22px;">€{eur_val:,.2f} <sup style="color: #AAAAAA; font-size: 0.5em; font-weight: normal;">${usd_val:,.2f}</sup></h3>
+            <h3 style="margin: 0; color: #FFFFFF; font-size: 22px;">€{eur_val:,.2f} <sup style="color: #AAAAAA; font-size: 0.5em; font-weight: normal;">${usd_val:,.2f}</sup>{pct_html}</h3>
         </div>
         '''
     
@@ -620,7 +622,8 @@ elif page == "Net Worth & Portfolio":
     with hero_col3:
         st.markdown(metric_card("Net Worth (Overall)", net_worth_eur, net_worth_usd), unsafe_allow_html=True)
     with hero_col4:
-        st.markdown(metric_card("Staking Rewards (Crypto)", staking_rewards_eur, staking_rewards_usd), unsafe_allow_html=True)
+        crypto_roi_pct = (staking_rewards_eur / crypto_dca_value_eur * 100) if crypto_dca_value_eur > 0 else 0
+        st.markdown(metric_card("Staking Rewards (Crypto)", staking_rewards_eur, staking_rewards_usd, crypto_roi_pct), unsafe_allow_html=True)
         
     st.markdown("<br>", unsafe_allow_html=True)
     st.divider()
@@ -648,10 +651,11 @@ elif page == "Net Worth & Portfolio":
     st.subheader("💎 Crypto Staking Breakdown (Token Level)")
     stk_details_df = pd.DataFrame(crypto_staking_details)
     if not stk_details_df.empty:
-        stk_details_df = stk_details_df[["asset", "dca_tokens", "reward_tokens", "current_tokens", "reward_eur"]]
+        stk_details_df = stk_details_df[["asset", "dca_tokens", "reward_tokens", "current_tokens", "reward_eur", "roi_pct"]]
         styled_stk_det = stk_details_df.style.format({
             "dca_tokens": "{:,.4f}", "reward_tokens": "{:,.4f}",
-            "current_tokens": "{:,.4f}", "reward_eur": "€{:,.2f}"
+            "current_tokens": "{:,.4f}", "reward_eur": "€{:,.2f}",
+            "roi_pct": "{:,.2f}%"
         })
         st.dataframe(styled_stk_det, hide_index=True, use_container_width=True)
 

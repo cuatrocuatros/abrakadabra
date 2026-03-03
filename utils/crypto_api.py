@@ -91,7 +91,7 @@ def get_sol_dca(address):
                 })
             
             # Split into smaller chunks to avoid RPC payload size limits
-            chunk_size = 10
+            chunk_size = 50
             for i in range(0, len(batch_payload), chunk_size):
                 chunk = batch_payload[i:i+chunk_size]
                 retries = 3
@@ -135,7 +135,6 @@ def get_sol_dca(address):
                         retries -= 1
                         if retries == 0:
                             print(f"Solana chunk error: {e}")
-                time.sleep(0.5) # Be nice to the public RPC
                     
     except Exception as e:
         print(f"Error fetching SOL DCA: {e}")
