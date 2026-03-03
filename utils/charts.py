@@ -236,3 +236,70 @@ def create_generic_line_chart(df, title, y_col, color='#00F0FF', period="daily")
     
     fig = add_range_selector(fig, period=period)
     return fig
+
+def create_dca_staircase_chart(dca_df, current_equity, expected_total=None):
+    """
+    Creates a staircase chart representing the cumulative invested capital (DCA).
+    Also plots a point/line for the current equity value to compare.
+    If expected_total is provided and the DCA history doesn't reach it (due to API limits),
+    we draw a flat line indicating the true known invested amount.
+    """
+    fig = go.Figure()
+    
+    # If we have an expected total that is higher than the last point in our history
+    # it means our history is truncated.
+    draw_expected = False
+    if expected_total is not None and not dca_df.empty:
+        last_dca_val = dca_df['cumulative_dca'].iloc[-1]
+        if abs(expected_total - last_dca_val) > 1.0: # Delta > 1 euro
+            draw_expected = True
+
+    # The DCA line (Staircase)
+    if draw_expected:
+        # Just use a single flat line for the known total invested instead of the broken slope
+        start_date = dca_df.index[0]
+        end_date = dca_df.index[-1]
+        fig.add_trace(go.Scatter(
+            x=[start_date, end_date], 
+            y=[expected_total, expected_total], 
+            name="True Capital Invertido (DCA)",
+            line=dict(color='#A0A0A0', width=2),
+            fill='tozeroy', 
+            fillcolor='rgba(160, 160, 160, 0.1)'
+        ))
+    else:
+        fig.add_trace(go.Scatter(
+            x=dca_df.index, 
+            y=dca_df['cumulative_dca'], 
+            name="Capital Invertido (DCA)",
+            line=dict(color='#A0A0A0', width=2, shape='hv'), # 'hv' = Horizontal, then Vertical (Staircase)
+            fill='tozeroy', 
+            fillcolor='rgba(160, 160, 160, 0.1)'
+        ))
+    
+    # Current Equity Point (or just horizontal line from start to end)
+    # We'll add a simple horizontal dashed line showing current value
+    # so the user can see if the staircase is above or below water
+    if not dca_df.empty:
+        start_date = dca_df.index[0]
+        end_date = dca_df.index[-1]
+        
+        fig.add_trace(go.Scatter(
+            x=[start_date, end_date],
+            y=[current_equity, current_equity],
+            name="Valor Actual",
+            mode="lines",
+            line=dict(color='#00F0FF', width=2, dash='dash')
+        ))
+
+    fig.update_layout(
+         # Empty title for layout integration
+         template="plotly_dark",
+         paper_bgcolor='rgba(0,0,0,0)',
+         height=400,
+         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    # We will use the same add_range_selector since DCA is essentially "daily" history
+    fig = add_range_selector(fig, period="daily")
+    return fig

@@ -537,7 +537,12 @@ elif page == "Net Worth & Portfolio":
     with st.spinner("Fetching Portfolio Data..."):
         # Fetch Data
         t212_data = df_utils.get_trading212_portfolio(TRADING212_KEY, TRADING212_SECRET)
-        crypto_data = df_utils.get_crypto_balances(st.secrets if hasattr(st, 'secrets') else {})
+        
+        s_dict = dict(st.secrets) if hasattr(st, 'secrets') else {}
+        crypto_data = df_utils.get_crypto_balances(s_dict)
+        
+        from utils.crypto_api import get_crypto_dca_totals
+        crypto_dca_tokens = get_crypto_dca_totals(s_dict)
         
         # Calculate Totals
         stocks_total_eur = t212_data.get("total_equity_eur", 0)
@@ -554,24 +559,68 @@ elif page == "Net Worth & Portfolio":
         net_worth_eur = stocks_total_eur + crypto_total_eur
         net_worth_usd = stocks_total_usd + crypto_total_usd
         
-    # --- HERO SECTION ---
+        # Calculate Staking Rewards
+        total_crypto_balances = {}
+        for item in crypto_data.get("liquid", []) + crypto_data.get("staked", []):
+            asset = item["asset"]
+            if asset not in total_crypto_balances:
+                total_crypto_balances[asset] = {"balance": 0.0, "value_eur": 0.0, "value_usd": 0.0}
+            total_crypto_balances[asset]["balance"] += item["balance"]
+            total_crypto_balances[asset]["value_eur"] += item["value_eur"]
+            total_crypto_balances[asset]["value_usd"] += item["value_usd"]
+            
+        staking_rewards_eur = 0.0
+        staking_rewards_usd = 0.0
+        crypto_dca_value_eur = 0.0
+        
+        crypto_staking_details = []
+        for asset, totals in total_crypto_balances.items():
+            current_bal = totals["balance"]
+            # If dca_tokens is exactly 0, maybe we couldn't fetch. Fall back to current_bal so reward = 0
+            dca_bal = crypto_dca_tokens.get(asset, current_bal) if crypto_dca_tokens.get(asset, 0) > 0 else current_bal 
+            
+            reward_tokens = current_bal - dca_bal
+            if current_bal > 0:
+                ratio = reward_tokens / current_bal if reward_tokens > 0 else 0
+                reward_eur = totals["value_eur"] * ratio
+                reward_usd = totals["value_usd"] * ratio
+                
+                # DCA Value = Current Total Value - Reward Value
+                dca_val_eur = totals["value_eur"] - reward_eur
+                crypto_dca_value_eur += dca_val_eur
+                
+                if reward_tokens > 0:
+                    staking_rewards_eur += reward_eur
+                    staking_rewards_usd += reward_usd
+                
+                crypto_staking_details.append({
+                    "asset": asset,
+                    "dca_tokens": dca_bal,
+                    "current_tokens": current_bal,
+                    "reward_tokens": reward_tokens if reward_tokens > 0 else 0,
+                    "reward_eur": reward_eur if reward_eur > 0 else 0
+                })
+        
+        # --- HERO SECTION ---
     st.markdown("<br>", unsafe_allow_html=True)
-    hero_col1, hero_col2, hero_col3 = st.columns([1,1,1])
+    hero_col1, hero_col2, hero_col3, hero_col4 = st.columns(4)
     
     def metric_card(title, eur_val, usd_val):
         return f'''
-        <div style="background-color: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; border-left: 4px solid #00F0FF;">
-            <p style="color: #A0A0A0; font-size: 14px; margin-bottom: 5px; font-weight: bold;">{title}</p>
-            <h2 style="margin: 0; color: #FFFFFF; font-size: 28px;">€{eur_val:,.2f} <sup style="color: #AAAAAA; font-size: 0.5em; font-weight: normal;">${usd_val:,.2f}</sup></h2>
+        <div style="background-color: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; border-left: 4px solid #00F0FF; height: 100%;">
+            <p style="color: #A0A0A0; font-size: 13px; margin-bottom: 5px; font-weight: bold;">{title}</p>
+            <h3 style="margin: 0; color: #FFFFFF; font-size: 22px;">€{eur_val:,.2f} <sup style="color: #AAAAAA; font-size: 0.5em; font-weight: normal;">${usd_val:,.2f}</sup></h3>
         </div>
         '''
     
     with hero_col1:
-        st.markdown(metric_card("Total Net Worth", net_worth_eur, net_worth_usd), unsafe_allow_html=True)
-    with hero_col2:
         st.markdown(metric_card("Stocks (Trading 212)", stocks_total_eur, stocks_total_usd), unsafe_allow_html=True)
+    with hero_col2:
+        st.markdown(metric_card("Crypto (Total)", crypto_total_eur, crypto_total_usd), unsafe_allow_html=True)
     with hero_col3:
-        st.markdown(metric_card("Crypto (Liquid + Staked)", crypto_total_eur, crypto_total_usd), unsafe_allow_html=True)
+        st.markdown(metric_card("Net Worth (Overall)", net_worth_eur, net_worth_usd), unsafe_allow_html=True)
+    with hero_col4:
+        st.markdown(metric_card("Staking Rewards (Crypto)", staking_rewards_eur, staking_rewards_usd), unsafe_allow_html=True)
         
     st.markdown("<br>", unsafe_allow_html=True)
     st.divider()
@@ -579,67 +628,39 @@ elif page == "Net Worth & Portfolio":
     # --- CHARTS SECTION ---
     st.subheader("📊 Portfolio Overview")
     
-    chart_col1, chart_col2 = st.columns([1, 2])
+    # Donut Chart centered
+    labels = ['Stocks', 'Liquid Crypto', 'Staked Crypto']
+    values = [stocks_total_eur, liquid_crypto_eur, staked_crypto_eur]
     
-    with chart_col1:
-        # Donut Chart
-        labels = ['Stocks', 'Liquid Crypto', 'Staked Crypto']
-        values = [stocks_total_eur, liquid_crypto_eur, staked_crypto_eur]
-        
-        fig_donut = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.6, marker_colors=['#00F0FF', '#FF00FF', '#00FF00'])])
-        fig_donut.update_layout(
-            title_text="Asset Allocation",
-            template="plotly_dark",
-            showlegend=True,
-            legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
-            margin=dict(t=50, b=0, l=0, r=0)
-        )
-        st.plotly_chart(fig_donut, use_container_width=True)
-        
-    with chart_col2:
-        # Line Chart for Historical Growth
-        # Generate mock data for history based on today
-        import numpy as np
-        dates = pd.date_range(end=datetime.datetime.today(), periods=365)
-        np.random.seed(42)
-        random_walk = np.random.normal(loc=0.0005, scale=0.01, size=365)
-        cumulative_returns = np.cumprod(1 + random_walk)
-        mock_historical = cumulative_returns * (net_worth_eur / cumulative_returns[-1]) # Scale to end at current NW
-        
-        hist_df = pd.DataFrame({'Date': dates, 'Net Worth': mock_historical})
-        
-        time_filter = st.radio("Timeframe:", ["1W", "1M", "YTD", "1Y"], horizontal=True, index=3)
-        
-        if time_filter == "1W": hist_df_filtered = hist_df.tail(7)
-        elif time_filter == "1M": hist_df_filtered = hist_df.tail(30)
-        elif time_filter == "YTD": 
-             start_of_year = datetime.datetime(datetime.datetime.today().year, 1, 1)
-             hist_df_filtered = hist_df[hist_df['Date'] >= start_of_year]
-        else: hist_df_filtered = hist_df
-        
-        fig_line = px.line(hist_df_filtered, x='Date', y='Net Worth')
-        fig_line.update_traces(line_color='#00F0FF', fill='tozeroy', fillcolor='rgba(0, 240, 255, 0.1)')
-        fig_line.update_layout(
-            title="Crecimiento Simulable (Último Año)",
-            template="plotly_dark",
-            margin=dict(t=50, b=0, l=0, r=0),
-            yaxis_title=None,
-            xaxis_title=None
-        )
-        st.plotly_chart(fig_line, use_container_width=True)
-        
+    fig_donut = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.6, marker_colors=['#00F0FF', '#FF00FF', '#00FF00'])])
+    fig_donut.update_layout(
+        title_text="Asset Allocation",
+        template="plotly_dark",
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+        margin=dict(t=50, b=0, l=0, r=0)
+    )
+    st.plotly_chart(fig_donut, use_container_width=True)
+    
     st.divider()
-    
-    # --- BREAKDOWN SECTION ---
-    st.subheader("🔐 Crypto Breakdown (Liquid vs Staked)")
-    
+
+    # Detailed Breakdowns
+    st.subheader("💎 Crypto Staking Breakdown (Token Level)")
+    stk_details_df = pd.DataFrame(crypto_staking_details)
+    if not stk_details_df.empty:
+        stk_details_df = stk_details_df[["asset", "dca_tokens", "reward_tokens", "current_tokens", "reward_eur"]]
+        styled_stk_det = stk_details_df.style.format({
+            "dca_tokens": "{:,.4f}", "reward_tokens": "{:,.4f}",
+            "current_tokens": "{:,.4f}", "reward_eur": "€{:,.2f}"
+        })
+        st.dataframe(styled_stk_det, hide_index=True, use_container_width=True)
+
     col_liquid, col_staked = st.columns(2)
     
     with col_liquid:
         st.markdown(f"#### 💧 Liquid / Cold Wallet (€{liquid_crypto_eur:,.2f})")
         liquid_df = pd.DataFrame(crypto_data.get("liquid", []))
         if not liquid_df.empty:
-            # Reorder explicitly for aesthetics
             liquid_df = liquid_df[["asset", "balance", "value_eur", "value_usd"]]
             styled_liq = liquid_df.style.format({"balance": "{:,.4f}", "value_eur": "€{:,.2f}", "value_usd": "${:,.2f}"})
             st.dataframe(styled_liq, hide_index=True, use_container_width=True)
